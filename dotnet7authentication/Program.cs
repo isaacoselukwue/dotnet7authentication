@@ -28,7 +28,7 @@ app.Use((ctx, next) =>
     var claims = new List<Claim>();
     claims.Add(new Claim(key, value));
     var identity = new ClaimsIdentity(claims);
-    ctx.User = new System.Security.Claims.ClaimsPrincipal();
+    ctx.User = new System.Security.Claims.ClaimsPrincipal(identity);
 
 
     return next();
