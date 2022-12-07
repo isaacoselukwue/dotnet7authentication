@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using System.Runtime.Intrinsics.Arm;
 using System.Security.Claims;
@@ -12,7 +13,16 @@ builder.Services.AddSwaggerGen();
 //builder.Services.AddDataProtection();
 //builder.Services.AddHttpContextAccessor();
 //builder.Services.AddScoped<AuthService>();
-builder.Services.AddAuthentication("cookie").AddCookie("cookie");
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie("cookie");
+builder.Services.AddAuthorization(b =>
+{
+    b.AddPolicy("eu passport", pb =>
+    {
+        pb.RequireAuthenticatedUser().AddAuthenticationSchemes("cookie").RequireClaim("passport_type", "eur");
+    });
+});
 
 var app = builder.Build();
 
@@ -49,7 +59,7 @@ var summaries = new[]
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
 };
 app.UseAuthentication();
-
+app.UseAuthorization();
 
 app.MapGet("/weatherforecast", () =>
 {
@@ -72,6 +82,24 @@ app.MapGet("/username", (HttpContext ctx) =>
     return ctx.User.FindFirst("usr").Value;
 }).WithOpenApi();
 
+app.MapGet("/unsecure", (HttpContext ctx) =>
+{
+    return ctx.User.FindFirst("usr")?.Value ?? "empty";
+});
+app.MapGet("/sweden", (HttpContext ctx) =>
+{
+    //if (!ctx.User.Identities.Any(x => x.AuthenticationType == CookieAuthenticationDefaults.AuthenticationScheme))
+    //{
+    //    ctx.Response.StatusCode = 401;
+    //    return "";
+    //}
+    //if (!ctx.User.HasClaim("passport_type", "eur"))
+    //{
+    //    ctx.Response.StatusCode = 403;
+    //    return "";
+    //}
+    return "allowed";
+}).RequireAuthorization("eu passport");
 app.MapGet("/login", async (HttpContext ctx) =>
 {
     //await auth.SignIn();
@@ -79,10 +107,24 @@ app.MapGet("/login", async (HttpContext ctx) =>
     claims.Add(new Claim("usr", "isaac"));
     var identity = new ClaimsIdentity(claims, "cookie");
     var user = new System.Security.Claims.ClaimsPrincipal(identity);
-    await ctx.SignInAsync("cookie", user);
+    var authProperties = new AuthenticationProperties
+    {
+        IsPersistent = true,
+        ExpiresUtc = DateTimeOffset.UtcNow.AddDays(1)
+    };
+    await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user, authProperties);
     return "ok";
 }).WithOpenApi();
 
+app.MapGet("/login2", async (HttpContext ctx) =>
+{
+    var claims = new List<Claim>();
+    claims.Add(new Claim("usr", "isaac"));
+    claims.Add(new Claim("passport_type", "eur"));
+    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+    var user = new ClaimsPrincipal(identity);
+    await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user);
+}).WithOpenApi().AllowAnonymous();
 
 app.Run();
 
