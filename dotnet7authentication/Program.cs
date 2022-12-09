@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Options;
 using System.Runtime.Intrinsics.Arm;
 using System.Security.Claims;
+using System.Text.Encodings.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,13 +17,28 @@ builder.Services.AddSwaggerGen();
 //builder.Services.AddScoped<AuthService>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
-    .AddCookie("cookie");
+    .AddCookie("cookie").AddCookie("local").AddCookie("patreon-cookie")
+    .AddOAuth("external-patreon", o =>
+    {
+        o.SignInScheme = "patreon-cookie";
+        o.ClientId = "id";
+        o.ClientSecret = "secret";
+        o.AuthorizationEndpoint = "https://oauth.mocklab.io/oauth/authorize";
+        o.TokenEndpoint = "https://oauth.mocklab.io/oauth/token";
+        o.UserInformationEndpoint = "https://oauth.mocklab.io/userinfo";
+        o.CallbackPath = "/cb-patreon";
+        o.Scope.Add("profile");
+        o.SaveTokens = true;
+    });
 builder.Services.AddAuthorization(b =>
 {
-    b.AddPolicy("eu passport", pb =>
-    {
-        pb.RequireAuthenticatedUser().AddAuthenticationSchemes("cookie").RequireClaim("passport_type", "eur");
-    });
+    //b.AddPolicy("eu passport", pb =>
+    //{
+    //    pb.RequireAuthenticatedUser()
+    //    .AddAuthenticationSchemes("cookie")
+    //    .AddRequirements()
+    //    .RequireClaim("passport_type", "eur");
+    //});
 });
 
 var app = builder.Build();
@@ -126,6 +143,25 @@ app.MapGet("/login2", async (HttpContext ctx) =>
     await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, user);
 }).WithOpenApi().AllowAnonymous();
 
+app.MapGet("/login-local", async (ctx) =>
+{
+    var claims = new List<Claim>();
+    claims.Add(new Claim("user", "isaac"));
+    var identity = new ClaimsIdentity(claims, "cookie");
+    var user = new ClaimsPrincipal(identity);
+    await ctx.SignInAsync("local", user);
+});
+
+app.MapGet("/login-patreon", async (ctx) =>
+{
+
+    await ctx.ChallengeAsync("eternal-paetron", new AuthenticationProperties()
+    {
+        RedirectUri = "/"
+    });
+});
+
+
 app.Run();
 
 internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
@@ -147,3 +183,26 @@ internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary
 //        _accessor.HttpContext.Response.Headers["set-cookie"] = $"auth={protector.Protect("usr:isaac")}";
 //    }
 //}
+
+public class VisitorAuthHandler : CookieAuthenticationHandler
+{
+    public VisitorAuthHandler(IOptionsMonitor<CookieAuthenticationOptions> options, ILoggerFactory logger, UrlEncoder encoder, ISystemClock clock) : base(options, logger, encoder, clock)
+    {
+
+    }
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var result = await base.HandleAuthenticateAsync();
+        if (result.Succeeded)
+        {
+            return result;
+        }
+        // return base.HandleAuthenticateAsync();
+        var claims = new List<Claim>();
+        claims.Add(new Claim("user", "isaac"));
+        var identity = new ClaimsIdentity(claims, "visitor");
+        var user = new ClaimsPrincipal(identity);
+        await Context.SignInAsync("visitor", user);
+        return AuthenticateResult.Success(new AuthenticationTicket(user, "visitor"));
+    }
+}
